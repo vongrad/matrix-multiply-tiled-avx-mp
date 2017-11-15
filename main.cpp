@@ -31,16 +31,12 @@ int next_int() {
 
 void multiply(val** a, val** b, val** c, int size) {
     
-    //#pragma omp parallel for schedule(static,50) collapse(2) private(x,y,i) shared(a,b,c)
-    //#pragma omp parallel for schedule(dynamic, 10) collapse(2) private(x,y,i) shared(a,b,c)
-    
-    
     int x,y,i;
     
     #pragma omp parallel for private(x,y,i)
     for (x = 0; x < size; x++) {
         for (y = 0; y < size; y++) {
-            double sum = 0;
+            int sum = 0;
             for (i = 0; i < size; i++) {
                 sum += a[x][i] * b[y][i];
             }
@@ -51,67 +47,131 @@ void multiply(val** a, val** b, val** c, int size) {
 
 void multiply_avx(val** a, val** b, val** c, int size) {
 
+    // Each vector can have 4 double precisions floating points
+    int avx_vector_size = 4;
+    int diff = size % avx_vector_size;
+    int avx_portion = size - diff;
+
     int x,y,i;
 
-    int avx_block = 8;
-    int diff = size % avx_block;
-    int avx_size = size - diff;
-
+    #pragma omp parallel for private(x,y,i)
     for (x = 0; x < size; x++) {
         for (y = 0; y < size; y++) {
 
-            __m256 a1_avx, a2_avx, a3_avx, a4_avx, a5_avx, a6_avx, a7_avx, a8_avx, b1_avx, b2_avx, b3_avx, b4_avx, b5_avx, b6_avx, b7_avx, b8_avx;
-            float sum_arr[8];
-            double sum = 0;
+            __m256d ymm0, ymm1, ymm2, ymm3, ymm4, ymm5, ymm6, ymm7, ymm8, ymm9, ymm10, ymm11, ymm12, ymm13, ymm14, ymm15;
+
+            val sum = 0;
+            val out[avx_vector_size];
 
             // Luckily m == n
-            for (i = 0; i < avx_size; i += 8 * avx_block) {
-                a1_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&a[x][i]));
-                a2_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&a[x][i + 8]));
-                a3_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&a[x][i + 16]));
-                a4_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&a[x][i + 24]));
-                a5_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&a[x][i + 32]));
-                a6_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&a[x][i + 40]));
-                a7_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&a[x][i + 48]));
-                a8_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&a[x][i + 56]));
+            for (i = 0; i < avx_portion; i += 8 * avx_vector_size) {
+                // Load vectors
+                ymm0 = _mm256_loadu_pd(&a[x][i]);
+                ymm1 = _mm256_loadu_pd(&a[x][i + 4]);
+                ymm2 = _mm256_loadu_pd(&a[x][i + 8]);
+                ymm3 = _mm256_loadu_pd(&a[x][i + 12]);
+                ymm4 = _mm256_loadu_pd(&a[x][i + 16]);
+                ymm5 = _mm256_loadu_pd(&a[x][i + 20]);
+                ymm6 = _mm256_loadu_pd(&a[x][i + 24]);
+                ymm7 = _mm256_loadu_pd(&a[x][i + 28]);
 
-                b1_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&b[y][i]));
-                b2_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&b[y][i + 8]));
-                b2_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&b[y][i + 16]));
-                b2_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&b[y][i + 24]));
-                b2_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&b[y][i + 32]));
-                b2_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&b[y][i + 40]));
-                b2_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&b[y][i + 48]));
-                b2_avx = __builtin_ia32_loadups256(reinterpret_cast<float*>(&b[y][i + 56]));
+                ymm8 = _mm256_loadu_pd(&b[y][i]);
+                ymm9 = _mm256_loadu_pd(&b[y][i + 4]);
+                ymm10 = _mm256_loadu_pd(&b[y][i + 8]);
+                ymm11 = _mm256_loadu_pd(&b[y][i + 12]);
+                ymm12 = _mm256_loadu_pd(&b[y][i + 16]);
+                ymm13 = _mm256_loadu_pd(&b[y][i + 20]);
+                ymm14 = _mm256_loadu_pd(&b[y][i + 24]);
+                ymm15 = _mm256_loadu_pd(&b[y][i + 28]);
 
-                a1_avx = __builtin_ia32_mulps256(a1_avx, b1_avx);
-                a2_avx = __builtin_ia32_mulps256(a2_avx, b2_avx);
-                a3_avx = __builtin_ia32_mulps256(a3_avx, b3_avx);
-                a4_avx = __builtin_ia32_mulps256(a4_avx, b4_avx);
-                a5_avx = __builtin_ia32_mulps256(a5_avx, b5_avx);
-                a6_avx = __builtin_ia32_mulps256(a6_avx, b6_avx);
-                a7_avx = __builtin_ia32_mulps256(a7_avx, b7_avx);
-                a8_avx = __builtin_ia32_mulps256(a8_avx, b8_avx);
+                // Multiply vectors
+                ymm0 = _mm256_mul_pd(ymm0, ymm8);
+                ymm1 = _mm256_mul_pd(ymm1, ymm9);
+                ymm2 = _mm256_mul_pd(ymm2, ymm10);
+                ymm3 = _mm256_mul_pd(ymm3, ymm11);
+                ymm4 = _mm256_mul_pd(ymm4, ymm12);
+                ymm5 = _mm256_mul_pd(ymm5, ymm13);
+                ymm6 = _mm256_mul_pd(ymm6, ymm14);
+                ymm7 = _mm256_mul_pd(ymm7, ymm15);
 
-                a1_avx = __builtin_ia32_addps256(a1_avx, a2_avx);
-                a2_avx = __builtin_ia32_addps256(a3_avx, a4_avx);
-                a3_avx = __builtin_ia32_addps256(a5_avx, a6_avx);
-                a4_avx = __builtin_ia32_addps256(a7_avx, a8_avx);
+                // Add vectors
+                ymm0 = _mm256_add_pd(ymm0, ymm1);
+                ymm2 = _mm256_add_pd(ymm2, ymm3);
+                ymm4 = _mm256_add_pd(ymm4, ymm5);
+                ymm6 = _mm256_add_pd(ymm6, ymm7);
 
-                a1_avx = __builtin_ia32_addps256(a1_avx, a2_avx);
-                a2_avx = __builtin_ia32_addps256(a3_avx, a4_avx);
+                ymm0 = _mm256_add_pd(ymm0, ymm2);
+                ymm4 = _mm256_add_pd(ymm4, ymm6);
 
-                a1_avx = __builtin_ia32_addps256(a1_avx, a2_avx);
+                ymm0 = _mm256_add_pd(ymm0, ymm4);
 
-                __builtin_ia32_storeups256(sum_arr, a1_avx);
+                // Store vector
+                // An unaligned store is required because the arrays are not guaranteed to be properly aligned in memory for AVX.
+                _mm256_storeu_pd(out, ymm0);
 
-                for (int i = 0; i < avx_size; i++) {
-                    sum += sum_arr[i];
+                for (int i = 0; i < avx_vector_size; i++) {
+                    sum += out[i];
                 }
             }
 
             // Calculate remainder the standard way
-            for (i = avx_size; i < avx_size + diff; i++) {
+            for (i = avx_portion; i < size; i++) {
+                sum += a[x][i] * b[y][i];
+            }
+
+            c[x][y] = sum;
+        }
+    }
+}
+
+// Perfomance decrease!!
+void multiply_avx2(val** a, val** b, val** c, int size) {
+
+    // Each vector can have 4 double precisions floating points
+    int avx_vector_size = 4;
+    int diff = size % avx_vector_size;
+    int avx_portion = size - diff;
+
+    int x,y,i;
+
+    // Since we have 4 threads in total, reduce the number of ymm registers to 16/4 = 4 per iteration (thread)
+    #pragma omp parallel for collapse(2) private(x,y,i) num_threads(omp_get_num_procs())
+    for (x = 0; x < size; x++) {
+        for (y = 0; y < size; y++) {
+
+            __m256d ymm0, ymm1, ymm2, ymm3;
+
+            val sum = 0;
+            val out[avx_vector_size];
+
+            // Luckily m == n
+            for (i = 0; i < avx_portion; i += 2 * avx_vector_size) {
+                // Load vectors
+                ymm0 = _mm256_loadu_pd(&a[x][i]);
+                ymm1 = _mm256_loadu_pd(&a[x][i + 4]);
+
+                ymm2 = _mm256_loadu_pd(&b[y][i]);
+                ymm3 = _mm256_loadu_pd(&b[y][i + 4]);
+
+
+                // Multiply vectors
+                ymm0 = _mm256_mul_pd(ymm0, ymm2);
+                ymm1 = _mm256_mul_pd(ymm1, ymm3);
+
+                // Add vectors
+                ymm0 = _mm256_add_pd(ymm0, ymm1);
+
+                // Store vector
+                // An unaligned store is required because the arrays are not guaranteed to be properly aligned in memory for AVX.
+                _mm256_storeu_pd(out, ymm0);
+
+                for (int i = 0; i < avx_vector_size; i++) {
+                    sum += out[i];
+                }
+            }
+
+            // Calculate remainder the standard way
+            for (i = avx_portion; i < size; i++) {
                 sum += a[x][i] * b[y][i];
             }
 
@@ -250,6 +310,7 @@ int main(int argc, const char * argv[]) {
     //multiply_tiled_x(a, b, c, size);
     //multiply_cubed(a, b, c, size);
     multiply_avx(a, b, c, size);
+    //multiply_avx2(a, b, c, size);
     
     int h = atoi(argv[2]);
     
@@ -260,7 +321,6 @@ int main(int argc, const char * argv[]) {
             }
         }
     }
-    
     
     printf("%d\n", h & 1023);
     
